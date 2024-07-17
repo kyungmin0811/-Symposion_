@@ -17,6 +17,7 @@ def scan_qs(path, critical, nq):
     QidxLst = [] #Question Index List
     ContinueQLst = [] #Continueal Question List
     preQidx = ws.find(f"[{num}～") + len(str(num)) + 5
+    titles = [] #title of question
     while num <= nq:
         if (ws.find(f"[{num}～") != -1 and ws.find(f"[{num}～") > preQidx):
             start = num
@@ -26,36 +27,46 @@ def scan_qs(path, critical, nq):
             QidxLst += [ws.find(f"[{num}～")] + [-5 for i in range(end - start)]
             ContinueQLst += [num, end-start]
             num += end - start     
+        
+            title = re.compile(str(end) + r"\] .*?(은\?|시오\.)", flags = re.DOTALL).search(ws)
         elif(ws.find(f"\n{num}.") != -1 and ws.find(f"\n{num}.") > preQidx):
             print(f"{path}) ques.{num} sing")
             QidxLst.append(ws.find(f"\n{num}."))
             preQidx = ws.find(f"\n{num}.")
+
+            title = re.compile(str(num) + r"\. .*?(은\?|시오\.)", flags = re.DOTALL).search(ws)
         else:
             print(f"{path}) ques.{num} is not found.")
             QidxLst.append(-10)
             error_count += 1
+        
+        
+        
         num += 1
     QidxLst.append(0)
     next = 0 #next index in questions
-    titles = [] #title of question
     sentences = []
     for n in range(18, num):
         if (QidxLst[n-18] != -5):
-            if (n in ContinueQLst[::2] and n >= critical):
+            if (n in ContinueQLst[::2]):
                 next = ContinueQLst[ContinueQLst[::2].index(n)*2  + 1] + n + 1  #ContinueQLst start from 18, next start from 0 
                 print(f"{n}~{next-1} is continuous questions")
+                
+                
             else:
                 next = n+1
+                
 
             print(f"reading {n} (~ prev. {next}).... ", end='')
-            print(f"<idx : {QidxLst[n-18]} ~ {QidxLst[next-18]}-1>....", end='')
+            print(f"<idx : {QidxLst[n-18]} ~ {QidxLst[next-18]}-1>.... [", end='')
             
-            title = re.compile(str(n) + r"\. .*?(은\?|시오\.)", flags = re.DOTALL).search(ws)
-            print(title.Match, end="")
+            
+            print(titles[n-18], end="")
             txt = ws[QidxLst[n-18]:QidxLst[next-18]-1]
             eng_str = re.sub(r"[^a-zA-Z.? ,'xd ]+", "", txt) # remain only Eng
             sentences.append(re.sub("[.?]", ".\n", eng_str))
-
+            titles += [title for i in range(next - n)]
+            print("]")
             print('done!')
     
     with open(f"resolution_txt\{path}.txt", 'w') as f:
