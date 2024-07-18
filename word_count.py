@@ -1,5 +1,5 @@
 import pymupdf
-import re,time
+import re,time, traceback
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import nltk
@@ -48,12 +48,12 @@ def get_wordnet_pos_fromKorean(tag):
         return None
 def dict_search(word, pos):
     driver.get("https://dict.naver.com/enkodict/#/search?query="+word)
-    time.sleep(1)
+    #time.sleep(0.5)
     for i in (driver.find_elements(By.XPATH, '//*[@id="searchPage_entry"]/div/div[1]/ul')):
         dict_front = re.compile("[가-힣]*? ").search(i.text)
         if (get_wordnet_pos_fromKorean(dict_front.group()) == pos):
             t1 = re.sub("\\n(.*)", "",i.text[dict_front.end():]) #\n 뒤 글자 지움
-            t2 = re.sub(r"\[(.*)\]", "",i.text[dict_front.end():]) #[] 문자 지움
+            t2 = re.sub(r"\[(.*)\]", "",t1[dict_front.end():]) #[] 문자 지움
             return t2
     return None
 def findKey_inList(List, key):
@@ -64,22 +64,30 @@ def findKey_inList(List, key):
 def analyze_question(examText, word_list): 
     #지문 분석(지문, 기존 단어리스트([단어 원형<S>, 출제수<I>, [{뜻<L>: 예문<L>}...] ]))
     sentences = examText.split("\n") #문장 리스트로 분해
-    for sentence in sentences:
+    for s in sentences:
+        sentence =  re.sub(r"‘|’", "'", s)
         tokens = nltk.tokenize.word_tokenize(sentence) 
         tagged_tokens = nltk.pos_tag(tokens)       
         for token, tag in tagged_tokens:
-            if tagged_tokens not in stopwords:
-                pos = get_wordnet_pos(tag)
-                word = lemmatizer.lemmatize(token, pos = pos)
-                word_inKorean = dict_search(word, pos)
-                word_index = findKey_inList(word_list, word)
+            pos = get_wordnet_pos(tag)
+            if ((not tokens in stopwords) and pos != None):
+                try:         
+                    word = lemmatizer.lemmatize(token, pos = pos)
+                    word_inKorean = dict_search(word, pos)
+                    word_index = findKey_inList(word_list, word)
 
-                if (word_index == None):
-                    word_list.append([word, 1, [{word_inKorean: sentence}] ])
-                else:
-                    word_list[word_index] = [word, 
-                                             word_list[word_index][1] + 1,
-                                             word_list[word_index][2][word] + sentence]                   
+                    if (word_index == None):
+                        word_list.append([word, 1, {word_inKorean: [sentence]} ])
+                    else:
+                        word_list[word_index][1] = word_list[word_index][1] + 1
+                        if (word in word_list[word_index][2]):
+                            word_list[word_index][2][word].append(sentence)     
+                        else:
+                            word_list[word_index][2][word] = [sentence]
+                    print("done!")
+                except Exception as e:
+                    print("error!", traceback.format_exc())
+                       
 def list_in_str(sls, ss): #배열 안의 원소가 문자열 안에 있는지 점검
     for sl in sls:
         if sl in ss:return True
