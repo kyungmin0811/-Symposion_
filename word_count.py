@@ -5,7 +5,8 @@ from selenium.webdriver.common.by import By
 import nltk
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
-
+from nltk.probability import FreqDist
+from nltk.tokenize import TweetTokenizer
 
 error_count = 0
 nltk.download('punkt')
@@ -46,48 +47,38 @@ def get_wordnet_pos_fromKorean(tag):
         return wordnet.ADV
     else:
         return None
-def dict_search(word, pos):
+def dict_search(word):
     driver.get("https://dict.naver.com/enkodict/#/search?query="+word)
     #time.sleep(0.5)
+    means = []
+    poses = []
     for i in (driver.find_elements(By.XPATH, '//*[@id="searchPage_entry"]/div/div[1]/ul')):
         dict_front = re.compile("[가-힣]*? ").search(i.text)
-        if (get_wordnet_pos_fromKorean(dict_front.group()) == pos):
+        if (dict_front != None and get_wordnet_pos_fromKorean(dict_front.group()) in poses):
             t1 = re.sub("\\n(.*)", "",i.text[dict_front.end():]) #\n 뒤 글자 지움
             t2 = re.sub(r"\[(.*)\]", "",t1[dict_front.end():]) #[] 문자 지움
-            return t2
-    return None
+            means.append(t2)
+            poses.append(get_wordnet_pos_fromKorean(dict_front.group()))
+    return (means, poses)
 def findKey_inList(List, key):
     for n, element in enumerate(List):
         if (element[0] == key):
             return n
     return None
 def analyze_question(examText, word_list): 
-    #지문 분석(지문, 기존 단어리스트([단어 원형<S>, 출제수<I>, [{뜻<L>: 예문<L>}...] ]))
     sentences = examText.split("\n") #문장 리스트로 분해
     for s in sentences:
         sentence =  re.sub(r"‘|’", "'", s)
-        tokens = nltk.tokenize.word_tokenize(sentence) 
+        tokenizer = TweetTokenizer()
+        tokens = tokenizer.tokenize(sentence) 
         tagged_tokens = nltk.pos_tag(tokens)       
+        lem_tokens = []
         for token, tag in tagged_tokens:
             pos = get_wordnet_pos(tag)
-            if ((not tokens in stopwords) and pos != None):
-                try:         
-                    word = lemmatizer.lemmatize(token, pos = pos)
-                    word_inKorean = dict_search(word, pos)
-                    word_index = findKey_inList(word_list, word)
-
-                    if (word_index == None):
-                        word_list.append([word, 1, {word_inKorean: [sentence]} ])
-                    else:
-                        word_list[word_index][1] = word_list[word_index][1] + 1
-                        if (word in word_list[word_index][2]):
-                            word_list[word_index][2][word].append(sentence)     
-                        else:
-                            word_list[word_index][2][word] = [sentence]
-                    print("done!")
-                except Exception as e:
-                    print("error!", traceback.format_exc())
-                       
+            if (pos != None and (token.lower() not in stopwords) and len(token) > 1):
+                lem_tokens.append(lemmatizer.lemmatize(re.sub(r"\,|\.", "", token.lower()), pos = pos))
+        word_list.update(FreqDist(lem_tokens))
+    print("▍", end='')   
 def list_in_str(sls, ss): #배열 안의 원소가 문자열 안에 있는지 점검
     for sl in sls:
         if sl in ss:return True
@@ -178,18 +169,32 @@ def scan_qs(path,  specialQ, insertQ, fromQ, toQ):
             print("**********************")
             print('done!')
     
-    wordList = [] #단어 리스트
+    wordList = FreqDist()
     with open(f"resolution_txt\\{path}.txt", 'w') as f:
         for s_num, sentence in enumerate(sentences):
             f.write("\n"*3 + f"**********N.{sentences_num[s_num]}**********\n")
             f.write(sentence)
             analyze_question(sentence, wordList)
-    
+            
     return wordList
 
 
 
-wordList = [] #단어 리스트
+wordList = FreqDist()
 for year in range(2014, 2025):
-    scan_qs(f"{year}_s.pdf", [], ['어법', '흐름', '도표', '읽고,', '문맥'], 18, 45)
+    for test_name in [6,9,'s']:
+        wordList.update(scan_qs(f"{year}_{test_name}.pdf", [], ['어법', '흐름', '도표', '읽고,', '문맥'], 18, 45))
+
+for year in range(2010, 2013):
+    wordList.update(scan_qs(f"{year}_{test_name}.pdf", [], ['어법', '흐름', '도표', '읽고,', '문맥'], 18, 50))
+
+
+
+sorted_items = wordList.most_common()
+with open(f"wordlist.txt", 'w') as f:
+    for i in sorted_items:
+        f.write(i[0])
+        f.write("  |freq: ")
+        f.write(str(i[1]))
+        f.write("\n")
 print(f"{error_count} errors occurred.")
