@@ -1,11 +1,89 @@
-import pymupdf, re
-error_count = 0
+import pymupdf
+import re,time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
 
+
+error_count = 0
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
+lemmatizer = WordNetLemmatizer()
+stopwords = nltk.corpus.stopwords.words('english')
+
+chrome_options = webdriver.ChromeOptions()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+print("starting chromeDriver..")
+driver = webdriver.Chrome(options = chrome_options)
+print("done!")
+
+
+def get_wordnet_pos(tag):
+    if tag.startswith('J'):
+        return wordnet.ADJ
+    elif tag.startswith('V'):
+        return wordnet.VERB
+    elif tag.startswith('N'):
+        return wordnet.NOUN
+    elif tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return None
+def get_wordnet_pos_fromKorean(tag):
+    if tag == '전치사 ':
+        return wordnet.ADJ
+    elif tag == '동사 ':
+        return wordnet.VERB
+    elif tag == '명사 ':
+        return wordnet.NOUN
+    elif tag == '부사 ':
+        return wordnet.ADV
+    else:
+        return None
+def dict_search(word, pos):
+    driver.get("https://dict.naver.com/enkodict/#/search?query="+word)
+    time.sleep(1)
+    for i in (driver.find_elements(By.XPATH, '//*[@id="searchPage_entry"]/div/div[1]/ul')):
+        dict_front = re.compile("[가-힣]*? ").search(i.text)
+        if (get_wordnet_pos_fromKorean(dict_front.group()) == pos):
+            t1 = re.sub("\\n(.*)", "",i.text[dict_front.end():]) #\n 뒤 글자 지움
+            t2 = re.sub(r"\[(.*)\]", "",i.text[dict_front.end():]) #[] 문자 지움
+            return t2
+    return None
+def findKey_inList(List, key):
+    for n, element in enumerate(List):
+        if (element[0] == key):
+            return n
+    return None
+def analyze_question(examText, word_list): 
+    #지문 분석(지문, 기존 단어리스트([단어 원형<S>, 출제수<I>, [{뜻<L>: 예문<L>}...] ]))
+    sentences = examText.split("\n") #문장 리스트로 분해
+    for sentence in sentences:
+        tokens = nltk.tokenize.word_tokenize(sentence) 
+        tagged_tokens = nltk.pos_tag(tokens)       
+        for token, tag in tagged_tokens:
+            if tagged_tokens not in stopwords:
+                pos = get_wordnet_pos(tag)
+                word = lemmatizer.lemmatize(token, pos = pos)
+                word_inKorean = dict_search(word, pos)
+                word_index = findKey_inList(word_list, word)
+
+                if (word_index == None):
+                    word_list.append([word, 1, [{word_inKorean: sentence}] ])
+                else:
+                    word_list[word_index] = [word, 
+                                             word_list[word_index][1] + 1,
+                                             word_list[word_index][2][word] + sentence]                   
 def list_in_str(sls, ss): #배열 안의 원소가 문자열 안에 있는지 점검
     for sl in sls:
         if sl in ss:return True
     return False
-
 def scan_qs(path,  specialQ, insertQ, fromQ, toQ): 
     global error_count
     #scannig questions(2010~), 
@@ -82,9 +160,8 @@ def scan_qs(path,  specialQ, insertQ, fromQ, toQ):
                     txt = re.compile(f"(.*?){n}. ", flags = re.DOTALL).search(ws[QidxLst[n-18][1]:QidxLst[next-18][0]-1]).group()[:-4]
                 else:
                     txt = ws[QidxLst[n-18][1]:QidxLst[next-18][0]-1]
-            txt_proceed = re.sub(r"[^a-zA-Z.? ,'xd ]+", "", txt).replace("\n ", "")
-            #print(txt_proceed)
-            sentences.append(re.sub("[.?]", ".\n", txt_proceed))
+            txt_proceed = re.sub(r"""[^(a-zA-Z,.;‘’\s―“”)]+""", "", txt).replace("\n", "")
+            sentences.append(txt_proceed.replace(". ", ".\n").replace("?", "?\n"))
             #print(sentences)
                 
             # if ( list(set(specialQ) & set(title.split())) != []): # 문제의 키워드와 예외 키워드(special)가 켭치는지 확인
@@ -93,16 +170,18 @@ def scan_qs(path,  specialQ, insertQ, fromQ, toQ):
             print("**********************")
             print('done!')
     
-        
-        
-
-    with open(f"resolution_txt\{path}.txt", 'w') as f:
+    wordList = [] #단어 리스트
+    with open(f"resolution_txt\\{path}.txt", 'w') as f:
         for s_num, sentence in enumerate(sentences):
-
             f.write("\n"*3 + f"**********N.{sentences_num[s_num]}**********\n")
             f.write(sentence)
+            analyze_question(sentence, wordList)
+    
+    return wordList
 
 
+
+wordList = [] #단어 리스트
 for year in range(2014, 2025):
     scan_qs(f"{year}_s.pdf", [], ['어법', '흐름', '도표', '읽고,', '문맥'], 18, 45)
 print(f"{error_count} errors occurred.")
